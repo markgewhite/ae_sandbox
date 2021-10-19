@@ -184,7 +184,7 @@ for epoch = 1:setup.ae.nEpochs
                   'dlnetEnc', 'dlnetDec' );
         end
         
-        updateProgress( errorAx, lineScoreErr, scoreErr, ...
+        updateProgressAE( errorAx, lineScoreErr, scoreErr, ...
                         epoch, j, start );
     end
 end
