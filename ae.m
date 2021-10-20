@@ -17,6 +17,7 @@ setup.ae.beta1 = 0.5;
 setup.ae.beta2 = 0.999;
 setup.ae.valFreq = 100;
 setup.ae.valSize = [2 5];
+setup.ae.distSize = 1000;
 
 setup.ae.zDim = 10;
 setup.ae.xDim = [ 28 28 1 ];
@@ -43,43 +44,8 @@ testY = mnist.test_labels;
 imgDSTrain = arrayDatastore( trainX, 'IterationDimension', 3 );
 imgDSTest = arrayDatastore( testX, 'IterationDimension', 3 );
 
-
-% define the encoder network
-% ----------------------------
-
-layersEnc = [
-    featureInputLayer( setup.enc.input, 'Name', 'in' ) 
-    fullyConnectedLayer( 512, 'Name', 'fc1' )
-    leakyReluLayer( setup.enc.scale, 'Name', 'lrelu1' )
-    fullyConnectedLayer( 512, 'Name', 'fc2' )
-    leakyReluLayer( setup.enc.scale, 'Name', 'lrelu2' )
-    fullyConnectedLayer( setup.enc.output, 'Name', 'fc3' )
-    leakyReluLayer( setup.enc.scale, 'Name', 'lrelu3' )
-    ];
-
-lgraphEnc = layerGraph( layersEnc );
-dlnetEnc = dlnetwork( lgraphEnc );
-
-
-% define the decoder network
-% ----------------------------
-
-layersDec = [
-    featureInputLayer( setup.dec.input, 'Name', 'in' )    
-    fullyConnectedLayer( 512, 'Name', 'fc1' )
-    leakyReluLayer( setup.dec.scale, 'Name', 'lrelu1' )
-    fullyConnectedLayer( 512, 'Name', 'fc2' )
-    leakyReluLayer( setup.dec.scale, 'Name', 'lrelu2' )
-    fullyConnectedLayer( prod(setup.dec.output), 'Name', 'fc3' )
-    leakyReluLayer( setup.dec.scale, 'Name', 'lrelu3' )
-    tanhLayer( 'Name', 'out' );
-    ];
-
-%  projectAndReshapeLayer( setup.dec.output, ...
-%                        prod(setup.dec.output), 'Name', 'proj1' )
-
-lgraphDec = layerGraph( layersDec );
-dlnetDec = dlnetwork( lgraphDec );
+% define the networks
+[ dlnetEnc, dlnetDec ] = aeDesign1( setup );
 
 % train the model
 % ---------------
@@ -91,6 +57,11 @@ mbqTrain = minibatchqueue(  imgDSTrain,...
                             'MiniBatchFormat', 'CB' );
 mbqTest = minibatchqueue(  imgDSTest,...
                             'MiniBatchSize', prod( setup.ae.valSize ), ...
+                            'PartialMiniBatch', 'discard', ...
+                            'MiniBatchFcn', @preprocessMiniBatch, ...
+                            'MiniBatchFormat', 'CB' );
+mbqDist = minibatchqueue(  imgDSTest,...
+                            'MiniBatchSize', setup.ae.distSize, ...
                             'PartialMiniBatch', 'discard', ...
                             'MiniBatchFcn', @preprocessMiniBatch, ...
                             'MiniBatchFormat', 'CB' );
@@ -107,6 +78,7 @@ f.Position(3) = 2*f.Position(3);
 
 imgOrigAx = subplot( 2, 2, 1 );
 imgReconAx = subplot( 2, 2, 3 );
+distAx = subplot( 2, 2, 2 );
 errorAx = subplot( 2, 2, 4 );
 
 lineScoreErr = animatedline( errorAx, ...
@@ -117,6 +89,10 @@ ylim( errorAx, [0 0.1] );
 xlabel( errorAx, "Iteration");
 ylabel( errorAx, "MSE");
 grid on;
+
+legend( distAx, 'Latent Distribution' );
+xlabel( distAx, 'Z');
+ylabel( distAx, 'Q(Z)');
 
 % train the GAN 
 % -------------
@@ -174,7 +150,7 @@ for epoch = 1:setup.ae.nEpochs
         % using the held-out generator input.
         if mod( i, setup.ae.valFreq ) == 0 || i == 1
             if ~hasdata( mbqTest )
-                reset( mbqTest )
+                shuffle( mbqTest )
             end
             dlXTest = next( mbqTest );
             updateImagesPlot( imgOrigAx, imgReconAx, ...
@@ -182,6 +158,13 @@ for epoch = 1:setup.ae.nEpochs
                               dlXTest, setup.ae );
             save( 'PostDoc/Examples/AE/Networks/AE Networks WIP.mat', ...
                   'dlnetEnc', 'dlnetDec' );
+            
+            if ~hasdata( mbqDist )
+                shuffle( mbqDist );
+            end
+            dlXDist = next( mbqDist );
+            dlZDist = predict( dlnetEnc, dlXDist );
+            updateDistPlot( distAx, dlZDist );
         end
         
         updateProgressAE( errorAx, lineScoreErr, scoreErr, ...
