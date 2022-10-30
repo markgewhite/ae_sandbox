@@ -117,7 +117,7 @@ for epoch = 1:setup.ae.nEpochs
         
         % Read mini-batch of data
         dlXTrain = next( mbqTrain );
-        
+
         % Evaluate the model gradients and the generator state using
         % dlfeval and the modelGradients function listed at the end of the
         % example.
@@ -153,10 +153,21 @@ for epoch = 1:setup.ae.nEpochs
 
         % perform the second stage separately, if required
         if ~setup.ae.singleStage
+
+        
+            % compute probability distributions
+            dlPTrain = dlarray(calcXDistribution( extractdata(dlXTrain) ), 'CB');
+            [QTrain, NTrain] = calcZDistribution( extractdata(dlZTrain) );
+            dlQTrain = dlarray( QTrain, 'CB' );
+            dlNTrain = dlarray( NTrain, 'CB' );
+
             [ gradEnc, gradDec ] = dlfeval(  @modelGradientsAE2, ...
                                              dlnetEnc, ...
                                              dlnetDec, ...
-                                             dlZTrain );
+                                             dlZTrain, ...
+                                             dlPTrain, ...
+                                             dlQTrain, ...
+                                             dlNTrain );
 
             % Update the decoder network parameters
             [ dlnetDec, avgG.dec, avgGS.dec ] = ...
