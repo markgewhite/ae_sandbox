@@ -10,6 +10,8 @@ end
 
 % Parameters
 
+rng('default');
+
 % AAE training parameters
 setup.ae.nEpochs = 50; 
 setup.ae.batchSize = 100;
@@ -21,6 +23,8 @@ setup.ae.distSize = 1000;
 
 setup.ae.zDim = 10;
 setup.ae.xDim = [ 28 28 1 ];
+
+setup.ae.singleStage = false;
 
 % encoder network parameters
 setup.enc.learnRate = 0.0002;
@@ -117,12 +121,24 @@ for epoch = 1:setup.ae.nEpochs
         % Evaluate the model gradients and the generator state using
         % dlfeval and the modelGradients function listed at the end of the
         % example.
-        [ gradEnc, gradDec, scoreErr ] = ...
+        [ gradEnc, gradDec, scoreErr, dlZTrain, dlXHatTrain ] = ...
                                   dlfeval(  @modelGradientsAE, ...
                                             dlnetEnc, ...
                                             dlnetDec, ...
-                                            dlXTrain );
-        
+                                            dlXTrain, ...
+                                            setup.ae.singleStage );
+
+        % perform the second stage separately, if required
+        if ~setup.ae.singleStage
+            [ gradEnc, gradDec, scoreErr ] = ...
+                                      dlfeval(  @modelGradientsAE2, ...
+                                                dlnetEnc, ...
+                                                dlnetDec, ...
+                                                dlXTrain, ...
+                                                dlZTrain, ...
+                                                dlXHatTrain );
+        end
+
         % Update the decoder network parameters
         [ dlnetDec, avgG.dec, avgGS.dec ] = ...
                             adamupdate( dlnetDec, ...
@@ -165,6 +181,9 @@ for epoch = 1:setup.ae.nEpochs
             dlXDist = next( mbqDist );
             dlZDist = predict( dlnetEnc, dlXDist );
             updateDistPlot( distAx, dlZDist );
+
+            disp([ 'Loss (' num2str(i) ') = ' num2str(scoreErr) ]);
+
         end
         
         updateProgressAE( errorAx, lineScoreErr, scoreErr, ...
