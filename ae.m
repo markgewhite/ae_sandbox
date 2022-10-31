@@ -14,10 +14,10 @@ rng('default');
 
 % AAE training parameters
 setup.ae.nEpochs = 50; 
-setup.ae.batchSize = 100;
+setup.ae.batchSize = 50;
 setup.ae.beta1 = 0.5;
 setup.ae.beta2 = 0.999;
-setup.ae.valFreq = 100;
+setup.ae.valFreq = 25;
 setup.ae.valSize = [2 5];
 setup.ae.distSize = 1000;
 
@@ -90,7 +90,7 @@ lineScoreErr = animatedline( errorAx, ...
                                     'Color', [0.4940, 0.1840, 0.5560] );
 
 legend( errorAx, 'Reconstruction Error' );
-ylim( errorAx, [0 0.1] );
+%ylim( errorAx, [0 0.1] );
 xlabel( errorAx, "Iteration");
 ylabel( errorAx, "MSE");
 grid on;

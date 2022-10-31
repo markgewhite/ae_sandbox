@@ -4,11 +4,15 @@ function [dlQ, dlN] = calcdlZDistribution( dlZ )
     % center Z
     dlZ = dlZ - mean(dlZ);
 
+    % take the transpose
+    dlZT = dlTranspose( dlZ );
+
     % Compute joint probability that point i and j are neighbors
     sum_dlZ = sum(dlZ .^ 2);
+    sum_dlZT = sum(dlZT.^2,2);
 
     % Student-t distribution
-    dlN = 1 ./ (1 + sum_dlZ + dlTranspose(sum_dlZ) - 2*dlVectorSq(dlZ));
+    dlN = 1 ./ (1 + sum_dlZ + sum_dlZT - 2*stripdims(dlZT)*stripdims(dlZ));
     
     % set diagonal to zero
     dlN(1:size(dlZ,2)+1:end) = 0;
@@ -36,6 +40,20 @@ function dlQSq = dlVectorSq( dlQ )
     % Calculate dlV*dlV' (transpose)
     % and preserve the dlarray
     d = size( dlQ, 2 );
+    dlQSq = dlarray( zeros(d, d), 'CB' );
+    for i = 1:d
+        for j = 1:d
+            dlQSq(i,j) = sum( dlQ(:,i).*dlQ(:,j) );
+        end
+    end
+
+end
+
+
+function dlQSq = dlMultiply( dlQ )
+    % Calculate dlP*dlP' (transpose)
+    d = size( dlQ, 2 );
+    dlQT = dltranspose( dlQ );
     dlQSq = dlarray( zeros(d, d), 'CB' );
     for i = 1:d
         for j = 1:d
