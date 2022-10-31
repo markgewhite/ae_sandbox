@@ -24,7 +24,8 @@ setup.ae.distSize = 1000;
 setup.ae.zDim = 10;
 setup.ae.xDim = [ 28 28 1 ];
 
-setup.ae.singleStage = false;
+setup.ae.singleStage = true;
+setup.ae.fullCalc = true;
 
 % encoder network parameters
 setup.enc.learnRate = 0.0002;
@@ -117,6 +118,8 @@ for epoch = 1:setup.ae.nEpochs
         
         % Read mini-batch of data
         dlXTrain = next( mbqTrain );
+        dlPTrain = dlarray(calcXDistribution( extractdata(dlXTrain) ), 'CB');
+        dlXTrain = dlarray( extractdata(dlXTrain), 'CB');
 
         % Evaluate the model gradients and the generator state using
         % dlfeval and the modelGradients function listed at the end of the
@@ -126,7 +129,8 @@ for epoch = 1:setup.ae.nEpochs
                                             dlnetEnc, ...
                                             dlnetDec, ...
                                             dlXTrain, ...
-                                            setup.ae.singleStage );
+                                            dlPTrain, ...
+                                            setup.ae.fullCalc );
 
         % Update the decoder network parameters
         [ dlnetDec, avgG.dec, avgGS.dec ] = ...
@@ -156,7 +160,6 @@ for epoch = 1:setup.ae.nEpochs
 
         
             % compute probability distributions
-            dlPTrain = dlarray(calcXDistribution( extractdata(dlXTrain) ), 'CB');
             [QTrain, NTrain] = calcZDistribution( extractdata(dlZTrain) );
             dlQTrain = dlarray( QTrain, 'CB' );
             dlNTrain = dlarray( NTrain, 'CB' );
@@ -204,8 +207,8 @@ for epoch = 1:setup.ae.nEpochs
             updateImagesPlot( imgOrigAx, imgReconAx, ...
                               dlnetEnc, dlnetDec, ...
                               dlXTest, setup.ae );
-            save( 'PostDoc/Examples/AE/Networks/AE Networks WIP.mat', ...
-                  'dlnetEnc', 'dlnetDec' );
+            %( 'PostDoc/Examples/AE/Networks/AE Networks WIP.mat', ...
+            %      'dlnetEnc', 'dlnetDec' );
             
             if ~hasdata( mbqDist )
                 shuffle( mbqDist );
