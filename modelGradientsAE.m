@@ -26,6 +26,7 @@ if fullCalc
 
     % calculate the fidelity loss
     [dlQ, dlN] = calcdlZDistribution( dlZ );
+    [Q, N] = calcZDistribution( extractdata(dlZ) );
 
     lossFidelity = sum( (dlP - dlQ).*dlN, 'all' );
 
@@ -38,7 +39,7 @@ end
 loss = 0.9*lossRecon + lossFidelity;
 
 % calculate the gradients (following igul222)
-[ gradEnc, gradDec ] = dlgradient( loss, ...
+[ gradEnc, gradDec ] = dlgradient( lossFidelity, ...
                                    dlnetEnc.Learnables, ...
                                    dlnetDec.Learnables, ...
                                    'RetainData', true );
