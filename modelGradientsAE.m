@@ -2,7 +2,7 @@
 % Function: modelGradients for an autoencoder (no adversarial design)
 % ***********************************************************************/
 
-function [  gradEnc, gradDec, lossFidelity, dlZ ] = ...
+function [  gradEnc, gradDec, lossRecon, dlZ ] = ...
                         modelGradientsAE( ...
                                         dlnetEnc, ...
                                         dlnetDec, ...
@@ -26,20 +26,22 @@ if fullCalc
 
     % calculate the fidelity loss
     [dlQ, dlN] = calcdlZDistribution( dlZ );
-    [Q, N] = calcZDistribution( extractdata(dlZ) );
 
-    lossFidelity = sum( (dlP - dlQ).*dlN, 'all' );
+    lossFidelity = -sum( (dlP - dlQ).*dlN, 'all' );
+    %dlLogQ = log(dlQ);
+    %dlLogQ(1:size(dlZ,2)+1:end) = 0;
+    %lossFidelity = sum( dlP(:).*log(dlP(:)))-sum( dlP(:).*dlLogQ(:) );
 
 else
-
     lossKL = 0;
+    lossFidelity = 0;
 end
 
 % combine 
-loss = 0.9*lossRecon + lossFidelity;
+loss = lossRecon + lossFidelity;
 
 % calculate the gradients (following igul222)
-[ gradEnc, gradDec ] = dlgradient( lossFidelity, ...
+[ gradEnc, gradDec ] = dlgradient( loss, ...
                                    dlnetEnc.Learnables, ...
                                    dlnetDec.Learnables, ...
                                    'RetainData', true );

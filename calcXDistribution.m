@@ -4,14 +4,12 @@ function P = calcXDistribution( X )
     doPCA = false;
     perplexity = 15;
 
-    % transpose
-    X = X';
-
     % Normalize input data
     X = X - min(X(:));
     X = X / max(X(:));
-    X = bsxfun(@minus, X, mean(X, 1));
-    
+    X = X - mean(X,2);
+    %X = (X-mean(X,2))./std(X);
+
     % Perform preprocessing using PCA
     if doPCA
         disp('Preprocessing data using PCA...');
@@ -32,9 +30,13 @@ function P = calcXDistribution( X )
     end
     
     % Compute pairwise distance matrix
-    sum_X = sum(X .^ 2, 2);
-    D = bsxfun(@plus, sum_X, bsxfun(@plus, sum_X', -2 * (X * X')));
+    sum_X = sum(X.^2);
+    D = sum_X + sum_X' -2*(X')*X;
     
+    D = D - min(D(:));
+    D = D / max(D(:));
+
+
     % Compute joint probabilities
     P = d2pAE(D, perplexity, 1e-4);
 
