@@ -2,12 +2,15 @@
 % Update the progress plots
 % *************************************
 
-function updateProgressAE( ax1, lineErr, scoreErr, ...
-                         epoch, j, t0 )
+function updateProgressAE(  ax1, ...
+                            lineRecon, lineAux, ...
+                            reconLoss, auxLoss, ...
+                            epoch, j, t0 )
 
-addpoints( lineErr, j, ...
-            double(extractdata(scoreErr)) );
-        
+addpoints( lineRecon, j, ...
+            double(extractdata(reconLoss)) );
+
+addpoints( lineAux, j, auxLoss );
         
 % Update the title with training progress information.
 D = duration( 0, 0, toc(t0), 'Format', 'hh:mm:ss' );
