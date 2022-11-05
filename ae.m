@@ -24,7 +24,7 @@ setup.ae.dispSize = [2 5];
 setup.ae.zDim = 10;
 setup.ae.xDim = [ 28 28 1 ];
 
-setup.ae.fullCalc = false;
+setup.ae.fullCalc = true;
 
 % encoder network parameters
 setup.enc.learnRate = 0.0002;
