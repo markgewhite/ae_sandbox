@@ -24,7 +24,7 @@ setup.ae.dispSize = [2 5];
 setup.ae.zDim = 10;
 setup.ae.xDim = [ 28 28 1 ];
 
-setup.ae.fullCalc = true;
+setup.ae.fullCalc = false;
 
 % encoder network parameters
 setup.enc.learnRate = 0.0002;
@@ -125,8 +125,11 @@ for epoch = 1:setup.ae.nEpochs
         [dlXTrain, dlYTrain] = next( mbqTrain );
 
         % generate density estimation
-        dlPTrain = dlarray(calcXDistribution( extractdata(dlXTrain) ), 'CB');
-        dlXTrain = dlarray( extractdata(dlXTrain), 'CB');
+        if setup.ae.fullCalc
+            dlPTrain = dlarray(calcXDistribution( extractdata(dlXTrain) ), 'CB');
+        else
+            dlPTrain = [];
+        end
 
         % Evaluate the model gradients and the generator state using
         % dlfeval and the modelGradients function listed at the end of the
@@ -166,12 +169,7 @@ for epoch = 1:setup.ae.nEpochs
         % using the held-out generator input.
         if mod( i, setup.ae.valFreq ) == 0 || i == 1
 
-            % fit auxiliary model
-            ZTrain = double(extractdata(dlZTrain))';
-            YTrain = double(extractdata(dlYTrain));
-            auxModel = fitcecoc( ZTrain, YTrain );
-
-            % test auxiliary model
+            % get test data
             if ~hasdata( mbqTest )
                 shuffle( mbqTest )
             end
@@ -179,10 +177,23 @@ for epoch = 1:setup.ae.nEpochs
 
             dlZTest = predict( dlnetEnc, dlXTest );
             ZTest = double(extractdata(dlZTest))';
-            YTest = double(extractdata(dlYTest));
-            YTestPred = predict( auxModel, ZTest );
-            auxLoss = crossentropy( YTestPred, YTest );
 
+            if setup.ae.fullCalc
+
+                % fit auxiliary model
+                ZTrain = double(extractdata(dlZTrain))';
+                YTrain = double(extractdata(dlYTrain));
+                auxModel = fitcecoc( ZTrain, YTrain );
+    
+                YTest = double(extractdata(dlYTest));
+                YTestPred = predict( auxModel, ZTest );
+                auxLoss = crossentropy( YTestPred, YTest );
+
+            else
+                auxLoss = 0;
+
+            end
+                
             updateImagesPlot( imgOrigAx, imgReconAx, ...
                               dlnetEnc, dlnetDec, ...
                               dlXTest, setup.ae );
