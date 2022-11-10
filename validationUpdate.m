@@ -1,4 +1,8 @@
-function validationUpdate( mbqTest, dlnetEnc, dlnetDec, wkLoss )
+function validationUpdate( nets, mbqTest, mbqDisp, ...
+                           imgOrigAx, imgReconAx, distAx, setup )
+
+    dlnetEnc = nets(1);
+    dlnetDec = nets(2);
 
     % get test data
     if ~hasdata( mbqTest )
@@ -28,8 +32,6 @@ function validationUpdate( mbqTest, dlnetEnc, dlnetDec, wkLoss )
     updateImagesPlot( imgOrigAx, imgReconAx, ...
                       dlnetEnc, dlnetDec, ...
                       dlXTest, setup.ae );
-    %( 'PostDoc/Examples/AE/Networks/AE Networks WIP.mat', ...
-    %      'dlnetEnc', 'dlnetDec' );
     
     if ~hasdata( mbqDisp )
         shuffle( mbqDisp );
@@ -37,7 +39,5 @@ function validationUpdate( mbqTest, dlnetEnc, dlnetDec, wkLoss )
     dlXDist = next( mbqDisp );
     dlZDist = predict( dlnetEnc, dlXDist );
     updateDistPlot( distAx, dlZDist );
-
-    disp([ 'Loss (' num2str(epoch) ') = ' num2str(wkLoss) ]);
 
 end

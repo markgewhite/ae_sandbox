@@ -11,11 +11,11 @@ doUseGPU = false;
 rng('default');
 
 % AAE training parameters
-setup.ae.nEpochs = 50; 
+setup.ae.nEpochs = 100; 
 setup.ae.batchSize = 1000;
 setup.ae.beta1 = 0.5;
 setup.ae.beta2 = 0.999;
-setup.ae.valFreq = 100;
+setup.ae.valFreq = 20;
 setup.ae.testSize = 1000;
 setup.ae.dispSize = [2 5];
 
@@ -142,9 +142,16 @@ start = tic;
 
 % completet the monitoring setup
 dataQueue = parallel.pool.DataQueue;
-displayFcn =  @(data) updateProgressAE( data, ...
+dataQueue2 = parallel.pool.DataQueue;
+lossDisplayFcn =  @(data) updateProgressAE( data, ...
                                 lossAx, lineReconLoss, lineAuxLoss, start );
-afterEach( dataQueue, displayFcn );
+validationFcn = @(nets) validationUpdate( nets, ...
+                                          mbqTest, mbqDisp, ...
+                                          imgOrigAx, imgReconAx, distAx, ...
+                                          setup );
+
+afterEach( dataQueue, lossDisplayFcn );
+afterEach( dataQueue2, validationFcn );
 
 nIter = floor( size(trainX,3)/setup.ae.batchSize );
 i = 0;
@@ -249,15 +256,13 @@ spmd
         if spmdIndex == 1
             data = [epoch, i, loss];
             send( dataQueue, gather(data) );
+            if mod( epoch, setup.ae.valFreq ) == 0 || epoch == 1
+                nets = [dlnetEnc, dlnetDec];
+                send( dataQueue2, gather(nets) );
+            end   
         end
 
     end
 
 end
-
-% Every validationFrequency iterations, 
-% display batch of generated images 
-% using the held-out generator input.
-%if mod( i, setup.ae.valFreq ) == 0 || i == 1
-    % validationUpdate( mbqTest, dlnetEnc, dlnetDec, wkLoss )
-%end    
+  
