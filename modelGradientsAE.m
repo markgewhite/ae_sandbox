@@ -2,7 +2,7 @@
 % Function: modelGradients for an autoencoder (no adversarial design)
 % ***********************************************************************/
 
-function [  gradEnc, gradDec, lossRecon, dlZ ] = ...
+function [  gradEnc, gradDec, stateEnc, stateDec, lossRecon ] = ...
                         modelGradientsAE( ...
                                         dlnetEnc, ...
                                         dlnetDec, ...
@@ -11,10 +11,10 @@ function [  gradEnc, gradDec, lossRecon, dlZ ] = ...
                                         fullCalc )
 
 % predict the fake latent code for the image
-dlZ = forward( dlnetEnc, dlX );
+[dlZ, stateEnc] = forward( dlnetEnc, dlX );
 
 % predict the fake image from the fake code
-dlXHat = forward( dlnetDec, dlZ );
+[dlXHat, stateDec] = forward( dlnetDec, dlZ );
 
 % calculate the reconstruction loss
 lossRecon = mean( mean( 0.5*(dlXHat - dlX).^2, 1 ) );

@@ -4,11 +4,9 @@
 
 clear;
 
-if ~ismac
-    cd 'C:\Users\m.g.e.white\My Drive\Academia\MATLAB'
-end
-
 % Parameters
+
+doUseGPU = false;
 
 rng('default');
 
@@ -57,14 +55,7 @@ imgDSTest = combine( imgDSTestX, imgDSTestY );
 % define the networks
 [ dlnetEnc, dlnetDec ] = aeDesign1( setup );
 
-% train the model
-% ---------------
-
-mbqTrain = minibatchqueue(  imgDSTrain,...
-                            'MiniBatchSize', setup.ae.batchSize, ...
-                            'PartialMiniBatch', 'discard', ...
-                            'MiniBatchFcn', @preprocessMiniBatch, ...
-                            'MiniBatchFormat', {'CB', 'CB'} );
+% setup the minibatch queues that don't require parallel processing
 mbqTest = minibatchqueue(  imgDSTest,...
                             'MiniBatchSize', setup.ae.testSize, ...
                             'PartialMiniBatch', 'discard', ...
@@ -104,117 +95,185 @@ legend( distAx, 'Latent Distribution' );
 xlabel( distAx, 'Z');
 ylabel( distAx, 'Q(Z)');
 
-% train the GAN 
-% -------------
+% --- setup parallel processing ---
 
-nIter = floor( size(trainX,3)/setup.ae.batchSize );
-start = tic;
-j = 0;
-% Loop over epochs.
-for epoch = 1:setup.ae.nEpochs
-    
-    % Shuffle the data
-    shuffle( mbqTrain );
+% setup the environment
+if canUseGPU && doUseGPU
+    executionEnvironment = "gpu";
+    numberOfGPUs = gpuDeviceCount('available');
+    delete(gcp('nocreate'));
+    pool = parpool(numberOfGPUs);
+else
+    executionEnvironment = 'cpu';
+    delete(gcp('nocreate'));
+    pool = parpool;
+end
+numWorkers = pool.NumWorkers;
 
-    % Loop over mini-batches.
-    for i = 1:nIter
-        
-        j = j + 1;
-        
-        % Read mini-batch of data
-        [dlXTrain, dlYTrain] = next( mbqTrain );
-
-        % generate density estimation
-        if setup.ae.fullCalc
-            dlPTrain = dlarray(calcXDistribution( extractdata(dlXTrain) ), 'CB');
-        else
-            dlPTrain = [];
-        end
-
-        % Evaluate the model gradients and the generator state using
-        % dlfeval and the modelGradients function listed at the end of the
-        % example.
-        [ gradEnc, gradDec, reconLoss, dlZTrain ] = ...
-                                  dlfeval(  @modelGradientsAE, ...
-                                            dlnetEnc, ...
-                                            dlnetDec, ...
-                                            dlXTrain, ...
-                                            dlPTrain, ...
-                                            setup.ae.fullCalc );
-
-        % Update the decoder network parameters
-        [ dlnetDec, avgG.dec, avgGS.dec ] = ...
-                            adamupdate( dlnetDec, ...
-                                        gradDec, ...
-                                        avgG.dec, ...
-                                        avgGS.dec, ...
-                                        j, ...
-                                        setup.dec.learnRate, ...
-                                        setup.ae.beta1, ...
-                                        setup.ae.beta2 );
-        
-        % Update the generator network parameters
-        [ dlnetEnc, avgG.enc, avgGS.enc ] = ...
-                            adamupdate( dlnetEnc, ...
-                                        gradEnc, ...
-                                        avgG.enc, ...
-                                        avgGS.enc, ...
-                                        j, ...
-                                        setup.enc.learnRate, ...
-                                        setup.ae.beta1, ...
-                                        setup.ae.beta2 );
-                
-        % Every validationFrequency iterations, 
-        % display batch of generated images 
-        % using the held-out generator input.
-        if mod( i, setup.ae.valFreq ) == 0 || i == 1
-
-            % get test data
-            if ~hasdata( mbqTest )
-                shuffle( mbqTest )
-            end
-            [dlXTest, dlYTest] = next( mbqTest );
-
-            dlZTest = predict( dlnetEnc, dlXTest );
-            ZTest = double(extractdata(dlZTest))';
-
-            if setup.ae.fullCalc
-
-                % fit auxiliary model
-                ZTrain = double(extractdata(dlZTrain))';
-                YTrain = double(extractdata(dlYTrain));
-                auxModel = fitcecoc( ZTrain, YTrain );
-    
-                YTest = double(extractdata(dlYTest));
-                YTestPred = predict( auxModel, ZTest );
-                auxLoss = crossentropy( YTestPred, YTest );
-
-            else
-                auxLoss = 0;
-
-            end
-                
-            updateImagesPlot( imgOrigAx, imgReconAx, ...
-                              dlnetEnc, dlnetDec, ...
-                              dlXTest, setup.ae );
-            %( 'PostDoc/Examples/AE/Networks/AE Networks WIP.mat', ...
-            %      'dlnetEnc', 'dlnetDec' );
-            
-            if ~hasdata( mbqDisp )
-                shuffle( mbqDisp );
-            end
-            dlXDist = next( mbqDisp );
-            dlZDist = predict( dlnetEnc, dlXDist );
-            updateDistPlot( distAx, dlZDist );
-
-            disp([ 'Loss (' num2str(epoch) ') = ' num2str(reconLoss) ]);
-
-        end          
-
-        updateProgressAE(   lossAx, ...
-                            lineReconLoss, lineAuxLoss, ...
-                            reconLoss, auxLoss, ...
-                            epoch, j, start );
-    end
+% set the minibatch sizes
+miniBatchSize = setup.ae.batchSize;
+if executionEnvironment == "gpu"
+    % scale-up batch proportional to the number of workers
+    miniBatchSize = miniBatchSize .* numWorkers;
 end
 
+% determine batch size per worker
+wkMiniBatchSize = floor(miniBatchSize ./ repmat(numWorkers,1,numWorkers));
+remainder = miniBatchSize - sum(wkMiniBatchSize);
+wkMiniBatchSize = wkMiniBatchSize + [ones(1,remainder) zeros(1,numWorkers-remainder)];
+
+% find indices of the mean and variance state parameters 
+% of the batch normalization layers in the network state property.
+% so that mean and variance can be aggregated across all workers
+
+encBNLayers = arrayfun( @(l) isa(l,"nnet.cnn.layer.BatchNormalizationLayer"), ...
+                             dlnetEnc.Layers );
+encBNLayersNames = string({dlnetEnc.Layers(encBNLayers).Name});
+stateEnc = dlnetEnc.State;
+isEncBNStateMean = ismember(stateEnc.Layer,encBNLayersNames) ...
+                                & stateEnc.Parameter == "TrainedMean";
+isEncBNStateVariance = ismember(stateEnc.Layer,encBNLayersNames) ...
+                                    & stateEnc.Parameter == "TrainedVariance";
+
+decBNLayers = arrayfun( @(l) isa(l,"nnet.cnn.layer.BatchNormalizationLayer"), ...
+                             dlnetDec.Layers );
+decBNLayersNames = string({dlnetDec.Layers(decBNLayers).Name});
+stateDec = dlnetDec.State;
+isDecBNStateMean = ismember(stateDec.Layer,encBNLayersNames) ...
+                                & stateDec.Parameter == "TrainedMean";
+isDecBNStateVariance = ismember(stateDec.Layer,encBNLayersNames) ...
+                                    & stateDec.Parameter == "TrainedVariance";
+
+
+
+% create a data queue to allow training to be terminated early, 
+% if user presses the stop button
+spmd
+    stopTrainingEventQueue = parallel.pool.DataQueue;
+end
+stopTrainingQueue = stopTrainingEventQueue{1};
+
+% start the timer
+start = tic;
+
+% completet the monitoring setup
+dataQueue = parallel.pool.DataQueue;
+displayFcn =  @(data) updateProgressAE( data, ...
+                                lossAx, lineReconLoss, lineAuxLoss, start );
+afterEach( dataQueue, displayFcn );
+
+nIter = floor( size(trainX,3)/setup.ae.batchSize );
+i = 0;
+stopRequest = false;
+
+% begin the parallel training - each worker runs this code
+spmd
+
+    % partition datastore to divide it up among the workers
+    wkDSTrain = partition( imgDSTrain, numWorkers, spmdIndex );
+
+    % create minibatchqueue using partitioned datastore on each worker
+    wkMbqTrain = minibatchqueue(  wkDSTrain,...
+                            'MiniBatchSize', wkMiniBatchSize(spmdIndex), ...
+                            'PartialMiniBatch', 'discard', ...
+                            'MiniBatchFcn', @preprocessMiniBatch, ...
+                            'MiniBatchFormat', {'CB', 'CB'} );
+
+    epoch = 0;
+    while epoch < setup.ae.nEpochs && ~stopRequest
+
+        epoch = epoch + 1;
+
+        % Shuffle the data
+        shuffle( wkMbqTrain );
+    
+        % loop over mini-batches
+        while spmdReduce(@and, hasdata(wkMbqTrain)) && ~stopRequest            
+            i = i + 1;
+            
+            % Read mini-batch of data
+            [wkXTrain, wkYTrain] = next( wkMbqTrain );
+    
+            % generate density estimation
+            if setup.ae.fullCalc
+                dlPTrain = dlarray(calcXDistribution( extractdata(wkXTrain) ), 'CB');
+            else
+                dlPTrain = [];
+            end
+    
+            % Evaluate the model gradients and the generator state using
+            % dlfeval and the modelGradients function listed at the end of the
+            % example.
+            [ wkGradEnc, wkGradDec, wkStateEnc, wkStateDec, wkLoss ] = ...
+                                      dlfeval(  @modelGradientsAE, ...
+                                                dlnetEnc, ...
+                                                dlnetDec, ...
+                                                wkXTrain, ...
+                                                dlPTrain, ...
+                                                setup.ae.fullCalc );
+
+            % Aggregate the losses on all workers
+            wkNormFactor = wkMiniBatchSize(spmdIndex)./miniBatchSize;
+            loss = spmdPlus( wkNormFactor*extractdata(wkLoss) );
+
+            % Aggregate the network states across all workers
+            dlnetEnc.State = aggregateState( wkStateEnc, ...
+                                             wkNormFactor, ...
+                                             isEncBNStateMean, ...
+                                             isEncBNStateVariance );
+            dlnetDec.State = aggregateState( wkStateDec, ...
+                                             wkNormFactor, ...
+                                             isDecBNStateMean, ...
+                                             isDecBNStateVariance );
+
+            % Aggregate the gradients across all workers
+            wkGradEnc.Value = dlupdate( @aggregateGradients, ...
+                                        wkGradEnc.Value, ...
+                                        {wkNormFactor} );
+            wkGradDec.Value = dlupdate( @aggregateGradients, ...
+                                        wkGradDec.Value, ...
+                                        {wkNormFactor} );
+    
+            % Update the decoder network parameters
+            [ dlnetDec, avgG.dec, avgGS.dec ] = ...
+                                adamupdate( dlnetDec, ...
+                                            wkGradDec, ...
+                                            avgG.dec, ...
+                                            avgGS.dec, ...
+                                            i, ...
+                                            setup.dec.learnRate, ...
+                                            setup.ae.beta1, ...
+                                            setup.ae.beta2 );
+            
+            % Update the generator network parameters
+            [ dlnetEnc, avgG.enc, avgGS.enc ] = ...
+                                adamupdate( dlnetEnc, ...
+                                            wkGradEnc, ...
+                                            avgG.enc, ...
+                                            avgGS.enc, ...
+                                            i, ...
+                                            setup.enc.learnRate, ...
+                                            setup.ae.beta1, ...
+                                            setup.ae.beta2 );
+    
+        end
+
+        % Stop training if the Stop button has been clicked
+        stopRequest = spmdPlus(stopTrainingEventQueue.QueueLength);
+
+        % Send training progress information to the client
+        if spmdIndex == 1
+            data = [epoch, i, loss];
+            send( dataQueue, gather(data) );
+        end
+
+    end
+
+end
+
+% Every validationFrequency iterations, 
+% display batch of generated images 
+% using the held-out generator input.
+%if mod( i, setup.ae.valFreq ) == 0 || i == 1
+    % validationUpdate( mbqTest, dlnetEnc, dlnetDec, wkLoss )
+%end    
